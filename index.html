@@ -2,9 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta id="vp" name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DoseGuard — Medication &amp; Care Management System</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f6b72'/%3E%3Cpath d='M14 7h4v18h-4zM7 14h18v4H7z' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <script>
+    // On phones/tablets, scale the viewport to a 1280px desktop canvas so the whole Swing window fits
+    if (window.screen.width < 1024) {
+      document.getElementById("vp").setAttribute(
+        "content",
+        "width=1280, user-scalable=yes"
+      );
+    }
+  </script>
   <script src="https://cjrtnc.leaningtech.com/5.0/loader.js"></script>
   <style>
     * {
@@ -16,7 +25,7 @@
     html, body {
       width: 100%;
       height: 100%;
-      overflow: hidden;
+      overflow: auto;
       background-color: #f6f7f5;
       font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
       color: #1f2933;
@@ -76,10 +85,10 @@
     }
 
     #app-container {
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
+      min-height: 100vh;
+      position: relative;
       z-index: 2;
     }
   </style>
@@ -104,7 +113,14 @@
         await cheerpjInit({ version: 11 });
         statusEl.textContent = "Launching DoseGuard workspace…";
 
-        cheerpjCreateDisplay(-1, -1, container);
+        const isMobile = window.screen.width < 1024;
+        if (isMobile) {
+          container.style.width = "1280px";
+          container.style.height = "800px";
+          cheerpjCreateDisplay(1280, 800, container);
+        } else {
+          cheerpjCreateDisplay(-1, -1, container);
+        }
 
         const basePath = window.location.pathname.replace(/\/[^/]*$/, "");
         await cheerpjRunJar(`/app${basePath}/DoseGuard.jar`);
