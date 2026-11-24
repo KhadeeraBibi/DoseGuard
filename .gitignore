@@ -1,0 +1,7 @@
+﻿# Local testing data - never upload to GitHub
+data/
+*.dat
+*.tmp
+
+# Local compiled classes folder
+out/

@@ -1,0 +1,122 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DoseGuard — Medication &amp; Care Management System</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f6b72'/%3E%3Cpath d='M14 7h4v18h-4zM7 14h18v4H7z' fill='%23ffffff'/%3E%3C/svg%3E" />
+  <script src="https://cjrtnc.leaningtech.com/5.0/loader.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #f6f7f5;
+      font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+      color: #1f2933;
+    }
+
+    #loader {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      background-color: #f6f7f5;
+      z-index: 1;
+      text-align: center;
+      padding: 24px;
+    }
+
+    .brand-badge {
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      background-color: #0f6b72;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    #loader h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #153238;
+    }
+
+    #status-text {
+      font-size: 14px;
+      color: #5e6d77;
+      max-width: 420px;
+      line-height: 1.5;
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid #dde3e1;
+      border-top-color: #0f6b72;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #app-container {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 2;
+    }
+  </style>
+</head>
+<body>
+  <div id="loader">
+    <div class="brand-badge">+</div>
+    <h1>DoseGuard</h1>
+    <div class="spinner" id="spinner"></div>
+    <p id="status-text">Starting Java runtime in your browser… This takes about 10–15 seconds on the first visit.</p>
+  </div>
+
+  <div id="app-container"></div>
+
+  <script>
+    async function startDoseGuard() {
+      const statusEl = document.getElementById("status-text");
+      const spinnerEl = document.getElementById("spinner");
+      const container = document.getElementById("app-container");
+
+      try {
+        await cheerpjInit({ version: 11 });
+        statusEl.textContent = "Launching DoseGuard workspace…";
+
+        cheerpjCreateDisplay(-1, -1, container);
+
+        const basePath = window.location.pathname.replace(/\/[^/]*$/, "");
+        await cheerpjRunJar(`/app${basePath}/DoseGuard.jar`);
+      } catch (err) {
+        spinnerEl.style.display = "none";
+        statusEl.style.color = "#a33030";
+        statusEl.textContent = "Could not launch DoseGuard: " + (err && err.message ? err.message : err);
+        console.error(err);
+      }
+    }
+
+    window.addEventListener("load", startDoseGuard);
+  </script>
+</body>
+</html>
