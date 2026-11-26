@@ -12,6 +12,7 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
+import javax.swing.JScrollPane;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import java.awt.BasicStroke;
@@ -29,12 +30,20 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.Window;
 import java.awt.event.ActionListener;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.io.IOException;
 import java.util.function.Consumer;
 
 public class LoginPanel extends JPanel {
+    private static final int STACK_BREAKPOINT = 720;
+
     private final AuthService authService;
     private final Consumer<Caretaker> onLoginSuccess;
+
+    private final JPanel authShell;
+    private final JPanel brandPanel;
+    private final JPanel formContainer;
 
     private final JTextField usernameField;
     private final JPasswordField passwordField;
@@ -42,14 +51,20 @@ public class LoginPanel extends JPanel {
     private final JLabel statusBanner;
     private final char defaultPasswordEcho;
 
+    private boolean isStacked = false;
+
     public LoginPanel(AuthService authService, Consumer<Caretaker> onLoginSuccess) {
         this.authService = authService;
         this.onLoginSuccess = onLoginSuccess;
 
-        setLayout(new GridBagLayout());
+        setLayout(new BorderLayout());
         setBackground(UITheme.BG_APP);
 
-        JPanel authShell = new JPanel(new BorderLayout()) {
+        JPanel centerWrapper = new JPanel(new GridBagLayout());
+        centerWrapper.setBackground(UITheme.BG_APP);
+        centerWrapper.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+
+        authShell = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -65,11 +80,10 @@ public class LoginPanel extends JPanel {
         authShell.setPreferredSize(new Dimension(760, 440));
         authShell.setBorder(BorderFactory.createEmptyBorder(1, 1, 1, 1));
 
-        // Left minimal brand panel
-        authShell.add(createBrandPanel(), BorderLayout.WEST);
+        brandPanel = createBrandPanel();
+        authShell.add(brandPanel, BorderLayout.WEST);
 
-        // Right sign-in form
-        JPanel formContainer = new JPanel(new GridBagLayout());
+        formContainer = new JPanel(new GridBagLayout());
         formContainer.setBackground(UITheme.BG_SURFACE);
         formContainer.setBorder(BorderFactory.createEmptyBorder(32, 42, 32, 42));
 
@@ -113,14 +127,13 @@ public class LoginPanel extends JPanel {
         JButton loginButton = UITheme.createPrimaryButton("Login", UITheme.IconType.LOCK);
         loginButton.setAlignmentX(LEFT_ALIGNMENT);
         loginButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
-        loginButton.setPreferredSize(new Dimension(320, 40));
+        loginButton.setPreferredSize(new Dimension(260, 40));
 
         ActionListener submitAction = e -> attemptLogin();
         loginButton.addActionListener(submitAction);
         usernameField.addActionListener(submitAction);
         passwordField.addActionListener(submitAction);
 
-        // Subtle Register Caretaker row
         JPanel registerRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         registerRow.setOpaque(false);
         registerRow.setAlignmentX(LEFT_ALIGNMENT);
@@ -173,7 +186,47 @@ public class LoginPanel extends JPanel {
         formContainer.add(formStack, gbc);
 
         authShell.add(formContainer, BorderLayout.CENTER);
-        add(authShell, new GridBagConstraints());
+        centerWrapper.add(authShell, new GridBagConstraints());
+
+        JScrollPane scrollPane = new JScrollPane(centerWrapper);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        add(scrollPane, BorderLayout.CENTER);
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                applyResponsiveLayout(getWidth());
+            }
+        });
+    }
+
+    private void applyResponsiveLayout(int width) {
+        if (width <= 0) {
+            return;
+        }
+        boolean stacked = width < STACK_BREAKPOINT;
+        if (stacked != isStacked) {
+            isStacked = stacked;
+            authShell.remove(brandPanel);
+            authShell.add(brandPanel, stacked ? BorderLayout.NORTH : BorderLayout.WEST);
+        }
+
+        if (stacked) {
+            int cardW = Math.max(300, Math.min(440, width - 32));
+            brandPanel.setPreferredSize(new Dimension(cardW, 130));
+            formContainer.setBorder(BorderFactory.createEmptyBorder(22, 24, 24, 24));
+            authShell.setPreferredSize(new Dimension(cardW, 520));
+        } else {
+            int cardW = Math.min(760, width - 48);
+            brandPanel.setPreferredSize(new Dimension(285, 0));
+            formContainer.setBorder(BorderFactory.createEmptyBorder(32, 42, 32, 42));
+            authShell.setPreferredSize(new Dimension(cardW, 440));
+        }
+
+        authShell.revalidate();
+        authShell.repaint();
     }
 
     private JPanel createBrandPanel() {
@@ -185,7 +238,6 @@ public class LoginPanel extends JPanel {
                 g2.setColor(UITheme.SIDEBAR_BG);
                 g2.fillRect(0, 0, getWidth(), getHeight());
 
-                // Subtle healthcare motif in top-right corner
                 g2.setColor(new Color(255, 255, 255, 16));
                 g2.setStroke(new BasicStroke(1.2f));
                 int cx = getWidth() - 48;
@@ -195,24 +247,23 @@ public class LoginPanel extends JPanel {
                 g2.drawLine(cx - 11, cy, cx + 11, cy);
                 g2.drawLine(cx, cy - 11, cx, cy + 11);
 
-                // Subtle bottom sage-teal accent line
                 g2.setColor(new Color(111, 194, 184, 65));
                 g2.fillRect(0, getHeight() - 4, getWidth(), 4);
                 g2.dispose();
             }
         };
-        panel.setPreferredSize(new Dimension(295, 0));
-        panel.setBorder(BorderFactory.createEmptyBorder(32, 28, 32, 28));
+        panel.setPreferredSize(new Dimension(285, 0));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
 
         JPanel brandStack = new JPanel();
         brandStack.setOpaque(false);
         brandStack.setLayout(new BoxLayout(brandStack, BoxLayout.Y_AXIS));
 
-        JLabel logo = new JLabel(UITheme.createLogoIcon(46));
+        JLabel logo = new JLabel(UITheme.createLogoIcon(42));
         logo.setAlignmentX(CENTER_ALIGNMENT);
 
         JLabel appName = new JLabel("DoseGuard");
-        appName.setFont(new Font(UITheme.FONT_FAMILY, Font.BOLD, 24));
+        appName.setFont(new Font(UITheme.FONT_FAMILY, Font.BOLD, 22));
         appName.setForeground(Color.WHITE);
         appName.setAlignmentX(CENTER_ALIGNMENT);
 
@@ -222,9 +273,9 @@ public class LoginPanel extends JPanel {
         subtitle.setAlignmentX(CENTER_ALIGNMENT);
 
         brandStack.add(logo);
-        brandStack.add(Box.createVerticalStrut(14));
+        brandStack.add(Box.createVerticalStrut(10));
         brandStack.add(appName);
-        brandStack.add(Box.createVerticalStrut(4));
+        brandStack.add(Box.createVerticalStrut(3));
         brandStack.add(subtitle);
 
         panel.add(brandStack, new GridBagConstraints());
@@ -284,10 +335,10 @@ public class LoginPanel extends JPanel {
         formPanel.setBackground(UITheme.BG_SURFACE);
         formPanel.setBorder(BorderFactory.createEmptyBorder(18, 24, 14, 24));
 
-        JTextField fullNameField = UITheme.createTextField(22);
-        JTextField regUsernameField = UITheme.createTextField(22);
-        JPasswordField regPasswordField = UITheme.createPasswordField(22);
-        JPasswordField confirmPasswordField = UITheme.createPasswordField(22);
+        JTextField fullNameField = UITheme.createTextField(20);
+        JTextField regUsernameField = UITheme.createTextField(20);
+        JPasswordField regPasswordField = UITheme.createPasswordField(20);
+        JPasswordField confirmPasswordField = UITheme.createPasswordField(20);
 
         char regEcho = regPasswordField.getEchoChar();
         JCheckBox showRegPasswords = new JCheckBox("Show passwords");

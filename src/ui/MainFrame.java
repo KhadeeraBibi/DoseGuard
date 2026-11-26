@@ -24,6 +24,8 @@ import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.LocalDate;
@@ -39,6 +41,9 @@ public class MainFrame extends JFrame {
     private static final String CARD_PATIENTS = "Patients";
     private static final String CARD_MEDICATIONS = "Medications";
     private static final String CARD_INVENTORY = "Medicine Inventory";
+
+    private static final int COMPACT_BREAKPOINT = 860;
+    private static final int PHONE_BREAKPOINT = 560;
 
     private static final DateTimeFormatter HEADER_DATE_FORMAT =
             DateTimeFormatter.ofPattern("EEEE, dd MMM yyyy");
@@ -58,17 +63,25 @@ public class MainFrame extends JFrame {
     private final InventoryPanel inventoryPanel;
 
     private final Map<String, SidebarNavButton> navButtons = new LinkedHashMap<>();
+    private final Map<String, CompactNavButton> compactNavButtons = new LinkedHashMap<>();
     private final Map<String, String> sectionSubtitles = new LinkedHashMap<>();
 
     private final JLabel pageTitleLabel = new JLabel(CARD_DASHBOARD);
     private final JLabel pageSubtitleLabel = new JLabel();
+    private final JLabel dateLabel = new JLabel();
     private final JLabel alertBadgeLabel = new JLabel();
     private final JLabel feedbackToastLabel = new JLabel();
     private final JLabel headerCaretakerLabel = new JLabel();
     private final JLabel sidebarCaretakerLabel = new JLabel("Caretaker");
     private final Timer toastTimer;
 
+    private final JPanel sidebarPanel;
+    private final JPanel compactTopNav;
+    private final JPanel topHeaderPanel;
+
     private Caretaker currentCaretaker;
+    private String activeSection = CARD_DASHBOARD;
+    private boolean isCompactMode = false;
 
     public MainFrame(DoseGuardService service, AuthService authService) {
         this.service = service;
@@ -76,12 +89,12 @@ public class MainFrame extends JFrame {
         sectionSubtitles.put(CARD_DASHBOARD, "Overview of today's care schedule, daily progress, and alerts");
         sectionSubtitles.put(CARD_PATIENTS, "Registered patients and their assigned medication schedules");
         sectionSubtitles.put(CARD_MEDICATIONS, "Daily medication rounds, administration status, and logs");
-        sectionSubtitles.put(CARD_INVENTORY, "Tablet and syrup stock quantities with automatic status alerts");
+        sectionSubtitles.put(CARD_INVENTORY, "Tablet, syrup, and injection stock with automatic status alerts");
 
-        setTitle("DoseGuard — Medication & Care Management System");
+        setTitle("DoseGuard \u2014 Medication & Care Management System");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1200, 740);
-        setMinimumSize(new Dimension(980, 640));
+        setMinimumSize(new Dimension(360, 520));
         setLocationRelativeTo(null);
         setLayout(new BorderLayout());
 
@@ -99,13 +112,24 @@ public class MainFrame extends JFrame {
         contentPanel.add(medicationsPanel, CARD_MEDICATIONS);
         contentPanel.add(inventoryPanel, CARD_INVENTORY);
 
+        sidebarPanel = createSidebar();
+        compactTopNav = createCompactTopNav();
+        topHeaderPanel = createTopHeader();
+
         JPanel workspacePanel = new JPanel(new BorderLayout());
         workspacePanel.setBackground(UITheme.BG_APP);
-        workspacePanel.add(createSidebar(), BorderLayout.WEST);
+        workspacePanel.add(sidebarPanel, BorderLayout.WEST);
 
         JPanel rightWrapper = new JPanel(new BorderLayout());
         rightWrapper.setBackground(UITheme.BG_APP);
-        rightWrapper.add(createTopHeader(), BorderLayout.NORTH);
+
+        JPanel northStack = new JPanel();
+        northStack.setLayout(new BoxLayout(northStack, BoxLayout.Y_AXIS));
+        northStack.setOpaque(false);
+        northStack.add(compactTopNav);
+        northStack.add(topHeaderPanel);
+
+        rightWrapper.add(northStack, BorderLayout.NORTH);
         rightWrapper.add(contentPanel, BorderLayout.CENTER);
         workspacePanel.add(rightWrapper, BorderLayout.CENTER);
 
@@ -117,9 +141,41 @@ public class MainFrame extends JFrame {
 
         service.addDataChangeListener(this::refreshAllViews);
 
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                applyResponsiveLayout(getWidth());
+            }
+        });
+
         switchSection(CARD_DASHBOARD);
         refreshAllViews();
+        applyResponsiveLayout(getWidth());
         showLoginScreen();
+    }
+
+    private void applyResponsiveLayout(int width) {
+        boolean compact = width < COMPACT_BREAKPOINT;
+        boolean phone = width < PHONE_BREAKPOINT;
+
+        if (compact != isCompactMode) {
+            isCompactMode = compact;
+            sidebarPanel.setVisible(!compact);
+            compactTopNav.setVisible(compact);
+        }
+
+        pageSubtitleLabel.setVisible(!compact);
+        dateLabel.setVisible(!compact);
+        headerCaretakerLabel.setVisible(!phone);
+
+        topHeaderPanel.setPreferredSize(new Dimension(0, compact ? 54 : 68));
+        topHeaderPanel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, UITheme.BORDER),
+                BorderFactory.createEmptyBorder(0, compact ? 14 : 24, 0, compact ? 14 : 24)
+        ));
+
+        revalidate();
+        repaint();
     }
 
     private void showLoginScreen() {
@@ -137,6 +193,7 @@ public class MainFrame extends JFrame {
         switchSection(CARD_DASHBOARD);
         refreshAllViews();
         rootLayout.show(rootContainer, ROOT_WORKSPACE);
+        applyResponsiveLayout(getWidth());
         showFeedback("Welcome, " + displayName);
     }
 
@@ -165,6 +222,56 @@ public class MainFrame extends JFrame {
         feedbackToastLabel.setText(message);
         feedbackToastLabel.setVisible(true);
         toastTimer.restart();
+    }
+
+    private JPanel createCompactTopNav() {
+        JPanel bar = new JPanel(new BorderLayout(8, 0));
+        bar.setBackground(UITheme.SIDEBAR_BG);
+        bar.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+        bar.setVisible(false);
+
+        JPanel brandMini = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        brandMini.setOpaque(false);
+        brandMini.add(new JLabel(UITheme.createLogoIcon(24)));
+        JLabel appName = new JLabel("DoseGuard");
+        appName.setFont(UITheme.FONT_SECTION);
+        appName.setForeground(Color.WHITE);
+        brandMini.add(appName);
+
+        JPanel navRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        navRow.setOpaque(false);
+        addCompactNavButton(navRow, CARD_DASHBOARD, "Dashboard");
+        addCompactNavButton(navRow, CARD_PATIENTS, "Patients");
+        addCompactNavButton(navRow, CARD_MEDICATIONS, "Meds");
+        addCompactNavButton(navRow, CARD_INVENTORY, "Inventory");
+
+        JButton logoutMini = new JButton("Logout", UITheme.createIcon(UITheme.IconType.LOGOUT, 14, UITheme.SIDEBAR_TEXT));
+        logoutMini.setFont(UITheme.FONT_SMALL_BOLD);
+        logoutMini.setForeground(UITheme.SIDEBAR_TEXT);
+        logoutMini.setFocusPainted(false);
+        logoutMini.setContentAreaFilled(false);
+        logoutMini.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(UITheme.SIDEBAR_DIVIDER, 1),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)
+        ));
+        logoutMini.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        logoutMini.addActionListener(e -> handleLogout());
+
+        JPanel topLine = new JPanel(new BorderLayout());
+        topLine.setOpaque(false);
+        topLine.add(brandMini, BorderLayout.WEST);
+        topLine.add(logoutMini, BorderLayout.EAST);
+
+        bar.add(topLine, BorderLayout.NORTH);
+        bar.add(navRow, BorderLayout.SOUTH);
+        return bar;
+    }
+
+    private void addCompactNavButton(JPanel container, String sectionKey, String shortLabel) {
+        CompactNavButton btn = new CompactNavButton(shortLabel);
+        btn.addActionListener(e -> switchSection(sectionKey));
+        compactNavButtons.put(sectionKey, btn);
+        container.add(btn);
     }
 
     private JPanel createSidebar() {
@@ -288,7 +395,7 @@ public class MainFrame extends JFrame {
         JPanel titleStack = new JPanel();
         titleStack.setOpaque(false);
         titleStack.setLayout(new BoxLayout(titleStack, BoxLayout.Y_AXIS));
-        titleStack.setBorder(BorderFactory.createEmptyBorder(13, 0, 10, 0));
+        titleStack.setBorder(BorderFactory.createEmptyBorder(12, 0, 10, 0));
 
         pageTitleLabel.setFont(UITheme.FONT_PAGE_TITLE);
         pageTitleLabel.setForeground(UITheme.TEXT_PRIMARY);
@@ -301,7 +408,7 @@ public class MainFrame extends JFrame {
         titleStack.add(pageSubtitleLabel);
         header.add(titleStack, BorderLayout.WEST);
 
-        JPanel rightMeta = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 18));
+        JPanel rightMeta = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 14));
         rightMeta.setOpaque(false);
 
         feedbackToastLabel.setFont(UITheme.FONT_SMALL_BOLD);
@@ -317,11 +424,9 @@ public class MainFrame extends JFrame {
         feedbackToastLabel.setVisible(false);
         rightMeta.add(feedbackToastLabel);
 
-        JLabel dateLabel = new JLabel(
-                LocalDate.now().format(HEADER_DATE_FORMAT),
-                UITheme.createIcon(UITheme.IconType.CALENDAR, 14, UITheme.TEXT_SECONDARY),
-                SwingConstants.LEFT
-        );
+        dateLabel.setText(LocalDate.now().format(HEADER_DATE_FORMAT));
+        dateLabel.setIcon(UITheme.createIcon(UITheme.IconType.CALENDAR, 14, UITheme.TEXT_SECONDARY));
+        dateLabel.setHorizontalAlignment(SwingConstants.LEFT);
         dateLabel.setIconTextGap(6);
         dateLabel.setFont(UITheme.FONT_SMALL);
         dateLabel.setForeground(UITheme.TEXT_SECONDARY);
@@ -340,7 +445,6 @@ public class MainFrame extends JFrame {
         });
         rightMeta.add(alertBadgeLabel);
 
-        // Logged-in caretaker badge in application header
         headerCaretakerLabel.setFont(UITheme.FONT_SMALL_BOLD);
         headerCaretakerLabel.setForeground(UITheme.PRIMARY);
         headerCaretakerLabel.setBackground(UITheme.SAGE_SOFT);
@@ -358,11 +462,15 @@ public class MainFrame extends JFrame {
     }
 
     private void switchSection(String sectionKey) {
+        activeSection = sectionKey;
         contentLayout.show(contentPanel, sectionKey);
         pageTitleLabel.setText(sectionKey);
         pageSubtitleLabel.setText(sectionSubtitles.getOrDefault(sectionKey, ""));
 
         for (Map.Entry<String, SidebarNavButton> entry : navButtons.entrySet()) {
+            entry.getValue().setActive(entry.getKey().equals(sectionKey));
+        }
+        for (Map.Entry<String, CompactNavButton> entry : compactNavButtons.entrySet()) {
             entry.getValue().setActive(entry.getKey().equals(sectionKey));
         }
 
@@ -405,6 +513,39 @@ public class MainFrame extends JFrame {
                     BorderFactory.createLineBorder(UITheme.SUCCESS_BORDER, 1),
                     BorderFactory.createEmptyBorder(4, 10, 4, 10)
             ));
+        }
+    }
+
+    private static class CompactNavButton extends JButton {
+        private boolean active = false;
+
+        CompactNavButton(String text) {
+            super(text);
+            setFont(UITheme.FONT_SMALL_BOLD);
+            setForeground(UITheme.SIDEBAR_TEXT);
+            setFocusPainted(false);
+            setContentAreaFilled(false);
+            setOpaque(false);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        }
+
+        void setActive(boolean active) {
+            this.active = active;
+            setForeground(active ? Color.WHITE : UITheme.SIDEBAR_TEXT);
+            repaint();
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (active) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(UITheme.SIDEBAR_ACTIVE);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 6, 6);
+                g2.dispose();
+            }
+            super.paintComponent(g);
         }
     }
 

@@ -11,6 +11,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
@@ -24,9 +25,14 @@ import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.List;
 
 public class DashboardPanel extends JPanel {
+    private static final int DESKTOP_BREAKPOINT = 920;
+    private static final int PHONE_BREAKPOINT = 540;
+
     private final DoseGuardService service;
 
     private final JLabel totalPatientsValue = new JLabel("0");
@@ -42,14 +48,25 @@ public class DashboardPanel extends JPanel {
     private final DefaultTableModel activityModel;
     private final JLabel alertSummaryLabel = new JLabel("No active alerts.");
 
+    private final JPanel containerPanel;
+    private final JPanel metricsRow;
+    private final JPanel bodyPanel;
+    private final JPanel scheduleCard;
+    private final JPanel rightColumn;
+
+    private int lastLayoutMode = -1; // 0=phone, 1=tablet, 2=desktop
+
     public DashboardPanel(DoseGuardService service) {
         this.service = service;
-        setLayout(new BorderLayout(0, 16));
+        setLayout(new BorderLayout());
         setBackground(UITheme.BG_APP);
-        setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
 
-        // Top 4 KPI summary cards with subtle vector icon badges
-        JPanel metricsRow = new JPanel(new GridLayout(1, 4, 14, 0));
+        containerPanel = new JPanel(new BorderLayout(0, 16));
+        containerPanel.setBackground(UITheme.BG_APP);
+        containerPanel.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 20));
+
+        // Top 4 KPI summary cards
+        metricsRow = new JPanel(new GridLayout(1, 4, 14, 14));
         metricsRow.setOpaque(false);
         metricsRow.add(createMetricCard(
                 "Total Patients", "Registered under care", totalPatientsValue,
@@ -63,13 +80,12 @@ public class DashboardPanel extends JPanel {
         metricsRow.add(createMetricCard(
                 "Pending Doses", "Awaiting administration", pendingTodayValue,
                 UITheme.IconType.CLOCK, UITheme.WARNING_TEXT, UITheme.WARNING_BG));
-        add(metricsRow, BorderLayout.NORTH);
+        containerPanel.add(metricsRow, BorderLayout.NORTH);
 
-        // Two-column main workspace
-        JPanel bodyPanel = new JPanel(new GridBagLayout());
+        // Main workspace
+        bodyPanel = new JPanel(new GridBagLayout());
         bodyPanel.setOpaque(false);
 
-        // Left column: Today's Medication Schedule + subtle daily completion bar
         scheduleModel = new DefaultTableModel(
                 new String[]{"Time", "Patient Name", "Medicine", "Dosage", "Status"}, 0) {
             @Override
@@ -79,14 +95,14 @@ public class DashboardPanel extends JPanel {
         };
         JTable scheduleTable = new JTable(scheduleModel);
         UITheme.styleTable(scheduleTable);
-        scheduleTable.getColumnModel().getColumn(0).setPreferredWidth(72);
-        scheduleTable.getColumnModel().getColumn(1).setPreferredWidth(155);
-        scheduleTable.getColumnModel().getColumn(2).setPreferredWidth(155);
-        scheduleTable.getColumnModel().getColumn(3).setPreferredWidth(90);
-        scheduleTable.getColumnModel().getColumn(4).setPreferredWidth(105);
+        scheduleTable.getColumnModel().getColumn(0).setPreferredWidth(64);
+        scheduleTable.getColumnModel().getColumn(1).setPreferredWidth(140);
+        scheduleTable.getColumnModel().getColumn(2).setPreferredWidth(140);
+        scheduleTable.getColumnModel().getColumn(3).setPreferredWidth(80);
+        scheduleTable.getColumnModel().getColumn(4).setPreferredWidth(95);
         scheduleTable.getColumnModel().getColumn(4).setCellRenderer(UITheme.createStatusRenderer());
 
-        JPanel scheduleCard = UITheme.createCardPanel();
+        scheduleCard = UITheme.createCardPanel();
         JPanel scheduleTop = new JPanel(new BorderLayout(0, 10));
         scheduleTop.setOpaque(false);
         scheduleTop.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
@@ -109,8 +125,7 @@ public class DashboardPanel extends JPanel {
         scheduleCard.add(scheduleTop, BorderLayout.NORTH);
         scheduleCard.add(UITheme.wrapTableInScrollPane(scheduleTable), BorderLayout.CENTER);
 
-        // Right column: Alerts (top) + Recent Activity (bottom)
-        JPanel rightColumn = new JPanel(new GridBagLayout());
+        rightColumn = new JPanel(new GridBagLayout());
         rightColumn.setOpaque(false);
 
         alertsModel = new DefaultTableModel(new String[]{"Type", "Details"}, 0) {
@@ -122,10 +137,10 @@ public class DashboardPanel extends JPanel {
         JTable alertsTable = new JTable(alertsModel);
         UITheme.styleTable(alertsTable);
         alertsTable.setRowHeight(35);
-        alertsTable.getColumnModel().getColumn(0).setPreferredWidth(108);
-        alertsTable.getColumnModel().getColumn(0).setMaxWidth(122);
+        alertsTable.getColumnModel().getColumn(0).setPreferredWidth(104);
+        alertsTable.getColumnModel().getColumn(0).setMaxWidth(120);
         alertsTable.getColumnModel().getColumn(0).setCellRenderer(UITheme.createStatusRenderer());
-        alertsTable.getColumnModel().getColumn(1).setPreferredWidth(230);
+        alertsTable.getColumnModel().getColumn(1).setPreferredWidth(210);
 
         JPanel alertsCard = UITheme.createCardPanel();
         JPanel alertsHeader = UITheme.createSectionHeader(
@@ -149,10 +164,10 @@ public class DashboardPanel extends JPanel {
         JTable activityTable = new JTable(activityModel);
         UITheme.styleTable(activityTable);
         activityTable.setRowHeight(34);
-        activityTable.getColumnModel().getColumn(0).setPreferredWidth(76);
-        activityTable.getColumnModel().getColumn(1).setPreferredWidth(105);
-        activityTable.getColumnModel().getColumn(2).setPreferredWidth(105);
-        activityTable.getColumnModel().getColumn(3).setPreferredWidth(85);
+        activityTable.getColumnModel().getColumn(0).setPreferredWidth(72);
+        activityTable.getColumnModel().getColumn(1).setPreferredWidth(95);
+        activityTable.getColumnModel().getColumn(2).setPreferredWidth(95);
+        activityTable.getColumnModel().getColumn(3).setPreferredWidth(82);
         activityTable.getColumnModel().getColumn(3).setCellRenderer(UITheme.createStatusRenderer());
 
         JPanel activityCard = UITheme.createCardPanel();
@@ -169,31 +184,94 @@ public class DashboardPanel extends JPanel {
         rightGbc.weightx = 1.0;
 
         rightGbc.gridy = 0;
-        rightGbc.weighty = 0.57;
+        rightGbc.weighty = 0.56;
         rightGbc.insets = new Insets(0, 0, 14, 0);
         rightColumn.add(alertsCard, rightGbc);
 
         rightGbc.gridy = 1;
-        rightGbc.weighty = 0.43;
+        rightGbc.weighty = 0.44;
         rightGbc.insets = new Insets(0, 0, 0, 0);
         rightColumn.add(activityCard, rightGbc);
 
+        containerPanel.add(bodyPanel, BorderLayout.CENTER);
+
+        JScrollPane scrollPane = new JScrollPane(containerPanel);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        add(scrollPane, BorderLayout.CENTER);
+
+        applyResponsiveLayout(1100);
+
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                applyResponsiveLayout(getWidth());
+            }
+        });
+    }
+
+    private void applyResponsiveLayout(int width) {
+        if (width <= 0) {
+            return;
+        }
+        int mode = width < PHONE_BREAKPOINT ? 0 : (width < DESKTOP_BREAKPOINT ? 1 : 2);
+        if (mode == lastLayoutMode) {
+            return;
+        }
+        lastLayoutMode = mode;
+
+        if (mode == 2) {
+            metricsRow.setLayout(new GridLayout(1, 4, 14, 14));
+            containerPanel.setBorder(BorderFactory.createEmptyBorder(20, 24, 20, 24));
+        } else if (mode == 1) {
+            metricsRow.setLayout(new GridLayout(2, 2, 12, 12));
+            containerPanel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        } else {
+            metricsRow.setLayout(new GridLayout(4, 1, 10, 10));
+            containerPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
+        }
+
+        bodyPanel.removeAll();
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridy = 0;
         gbc.fill = GridBagConstraints.BOTH;
-        gbc.weighty = 1.0;
 
-        gbc.gridx = 0;
-        gbc.weightx = 0.58;
-        gbc.insets = new Insets(0, 0, 0, 16);
-        bodyPanel.add(scheduleCard, gbc);
+        if (mode == 2) {
+            scheduleCard.setPreferredSize(null);
+            rightColumn.setPreferredSize(null);
 
-        gbc.gridx = 1;
-        gbc.weightx = 0.42;
-        gbc.insets = new Insets(0, 0, 0, 0);
-        bodyPanel.add(rightColumn, gbc);
+            gbc.gridy = 0;
+            gbc.weighty = 1.0;
 
-        add(bodyPanel, BorderLayout.CENTER);
+            gbc.gridx = 0;
+            gbc.weightx = 0.58;
+            gbc.insets = new Insets(0, 0, 0, 16);
+            bodyPanel.add(scheduleCard, gbc);
+
+            gbc.gridx = 1;
+            gbc.weightx = 0.42;
+            gbc.insets = new Insets(0, 0, 0, 0);
+            bodyPanel.add(rightColumn, gbc);
+        } else {
+            scheduleCard.setPreferredSize(new Dimension(0, 320));
+            rightColumn.setPreferredSize(new Dimension(0, 440));
+
+            gbc.gridx = 0;
+            gbc.weightx = 1.0;
+
+            gbc.gridy = 0;
+            gbc.weighty = 0.0;
+            gbc.insets = new Insets(0, 0, 14, 0);
+            bodyPanel.add(scheduleCard, gbc);
+
+            gbc.gridy = 1;
+            gbc.weighty = 1.0;
+            gbc.insets = new Insets(0, 0, 0, 0);
+            bodyPanel.add(rightColumn, gbc);
+        }
+
+        containerPanel.revalidate();
+        containerPanel.repaint();
     }
 
     private JPanel createMetricCard(String title, String caption, JLabel valueLabel,
@@ -247,7 +325,6 @@ public class DashboardPanel extends JPanel {
         administeredTodayValue.setText(String.valueOf(administeredToday));
         pendingTodayValue.setText(String.valueOf(pendingToday));
 
-        // Update daily progress bar
         if (scheduledToday == 0) {
             progressTextLabel.setText("Daily Progress: No doses scheduled yet");
             completionBar.setProgress(0.0);
@@ -259,7 +336,6 @@ public class DashboardPanel extends JPanel {
             completionBar.setProgress(ratio);
         }
 
-        // Refresh upcoming medication schedule table
         scheduleModel.setRowCount(0);
         List<Medication> upcoming = service.getUpcomingMedications();
         for (Medication med : upcoming) {
@@ -272,14 +348,13 @@ public class DashboardPanel extends JPanel {
             });
         }
 
-        // Refresh alerts table
         alertsModel.setRowCount(0);
 
         List<MedicineItem> outOfStock = service.getOutOfStockMedicines();
         for (MedicineItem item : outOfStock) {
             alertsModel.addRow(new Object[]{
                     MedicineItem.STATUS_OUT_OF_STOCK,
-                    item.getName() + " (" + item.getItemType() + " — 0 remaining)"
+                    item.getName() + " (" + item.getItemType() + " - 0 remaining)"
             });
         }
 
@@ -295,7 +370,7 @@ public class DashboardPanel extends JPanel {
         for (Medication med : pendingMeds) {
             alertsModel.addRow(new Object[]{
                     Medication.STATUS_PENDING,
-                    med.getScheduledTime() + " — " + med.getMedicineName()
+                    med.getScheduledTime() + " - " + med.getMedicineName()
                             + " (" + service.getPatientNameById(med.getPatientId()) + ")"
             });
         }
@@ -310,7 +385,6 @@ public class DashboardPanel extends JPanel {
             alertSummaryLabel.setForeground(UITheme.TEXT_SECONDARY);
         }
 
-        // Refresh recent activity table (latest 6 logs)
         activityModel.setRowCount(0);
         List<AdministrationLog> logs = service.getAdministrationLogs();
         int limit = Math.min(6, logs.size());
@@ -329,7 +403,7 @@ public class DashboardPanel extends JPanel {
         private double progress = 0.0;
 
         CompletionProgressBar() {
-            setPreferredSize(new Dimension(120, 12));
+            setPreferredSize(new Dimension(100, 12));
         }
 
         void setProgress(double progress) {

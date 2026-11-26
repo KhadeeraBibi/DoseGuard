@@ -43,6 +43,7 @@ public class DoseGuardService implements DataManager {
 
     private boolean dataLoadFailed = false;
     private String lastLoadError = null;
+    private String lastAdministrationInventoryNote = null;
 
     public DoseGuardService() {
         this(DEFAULT_DATA_PATH);
@@ -54,6 +55,10 @@ public class DoseGuardService implements DataManager {
 
     public String getDataFilePath() {
         return dataFilePath;
+    }
+
+    public String getLastAdministrationInventoryNote() {
+        return lastAdministrationInventoryNote;
     }
 
     public void addDataChangeListener(Runnable listener) {
@@ -436,8 +441,10 @@ public class DoseGuardService implements DataManager {
         return markMedicationAsGiven(medicationId, "Oral");
     }
 
-    // Overloaded markMedicationAsGiven #2 (supports Injection route & site details)
+    // Overloaded markMedicationAsGiven #2 (supports Injection route, site details & auto inventory deduction)
     public AdministrationLog markMedicationAsGiven(String medicationId, String administrationDetails) throws IOException {
+        lastAdministrationInventoryNote = null;
+
         Medication med = findMedicationById(medicationId);
         if (med == null) {
             throw new IllegalArgumentException("Selected medication could not be found.");
@@ -448,9 +455,36 @@ public class DoseGuardService implements DataManager {
             throw new IllegalStateException("This scheduled dose has already been marked as Given today.");
         }
 
+        // Check matching medicine in inventory before recording the dose
+        MedicineItem stockItem = findMatchingInventoryItem(med.getMedicineName(), med.getMedicineType());
+        if (stockItem != null && stockItem.getQuantity() <= 0) {
+            throw new IllegalStateException(
+                    "Cannot administer " + stockItem.getName() + " (" + stockItem.getItemType()
+                            + "): Out of stock in Medicine Inventory. Please restock first.");
+        }
+
         String details = (administrationDetails == null || administrationDetails.trim().isEmpty())
                 ? (med.isInjection() ? med.getInjectionRoute() : "Oral")
                 : administrationDetails.trim();
+
+        // Deduct 1 dose from inventory if tracked
+        if (stockItem != null) {
+            stockItem.adjustQuantity(-1);
+            String status = stockItem.getStockStatus();
+            if (MedicineItem.STATUS_OUT_OF_STOCK.equals(status)) {
+                lastAdministrationInventoryNote = "Inventory Alert: " + stockItem.getName()
+                        + " (" + stockItem.getItemType() + ") is now OUT OF STOCK (0 remaining). Please restock.";
+            } else if (MedicineItem.STATUS_LOW_STOCK.equals(status)) {
+                lastAdministrationInventoryNote = "Low Stock Alert: " + stockItem.getName()
+                        + " (" + stockItem.getItemType() + ") has only " + stockItem.getQuantityDisplay() + " left.";
+            } else {
+                lastAdministrationInventoryNote = "Inventory Updated: " + stockItem.getName()
+                        + " (" + stockItem.getItemType() + ") - " + stockItem.getQuantityDisplay() + " remaining.";
+            }
+        } else {
+            lastAdministrationInventoryNote = "Inventory Note: \"" + med.getMedicineName()
+                    + "\" is not listed in Medicine Inventory, so no stock was deducted.";
+        }
 
         med.markAsGiven(today);
 
@@ -567,6 +601,27 @@ public class DoseGuardService implements DataManager {
             }
         }
         return null;
+    }
+
+    public MedicineItem findMatchingInventoryItem(String name, String type) {
+        if (name == null || name.trim().isEmpty()) {
+            return null;
+        }
+        String targetName = name.trim();
+        String targetType = type != null ? type.trim() : "";
+
+        // 1. Prefer exact match on both Name and Medicine Type (Tablet/Syrup/Injection)
+        if (!targetType.isEmpty()) {
+            for (MedicineItem item : inventory) {
+                if (item.getName().equalsIgnoreCase(targetName)
+                        && item.getItemType().equalsIgnoreCase(targetType)) {
+                    return item;
+                }
+            }
+        }
+
+        // 2. Fallback to Name-only match
+        return findMedicineByName(targetName);
     }
 
     public MedicineItem addMedicine(String name, String type, int quantity) throws IOException {

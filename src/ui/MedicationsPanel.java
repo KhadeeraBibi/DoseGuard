@@ -7,6 +7,7 @@ import model.Patient;
 import service.DoseGuardService;
 
 import javax.swing.BorderFactory;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -17,6 +18,8 @@ import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -28,7 +31,9 @@ import java.awt.Insets;
 import java.awt.Window;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class MedicationsPanel extends JPanel {
     private static final String[] MEDICINE_TYPES = {
@@ -154,7 +159,7 @@ public class MedicationsPanel extends JPanel {
             }
         }
 
-        statusPill.setText(displayedMedications.size() + " Scheduled  •  " + pendingCount + " Pending");
+        statusPill.setText(displayedMedications.size() + " Scheduled  \u2022  " + pendingCount + " Pending");
 
         if (rowToSelect >= 0) {
             medicationsTable.setRowSelectionInterval(rowToSelect, rowToSelect);
@@ -191,7 +196,7 @@ public class MedicationsPanel extends JPanel {
 
         dialog.add(UITheme.createDialogHeader(
                 "Assign Medication Schedule",
-                "Specify patient, medicine type, dosage, frequency, and 24-hour time"),
+                "Pick a medicine from Inventory (or type a custom name) to link automatic stock deduction"),
                 BorderLayout.NORTH);
 
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -201,7 +206,25 @@ public class MedicationsPanel extends JPanel {
         JComboBox<Patient> patientCombo = new JComboBox<>(patients.toArray(new Patient[0]));
         UITheme.styleComboBox(patientCombo);
 
-        JTextField medicineField = UITheme.createTextField(23);
+        // Editable Inventory-Linked Dropdown (unlimited items, auto-scrollable)
+        DefaultComboBoxModel<String> medicineModel = new DefaultComboBoxModel<>();
+        Set<String> uniqueNames = new LinkedHashSet<>();
+        for (MedicineItem item : service.getInventory()) {
+            if (uniqueNames.add(item.getName())) {
+                medicineModel.addElement(item.getName());
+            }
+        }
+        JComboBox<String> medicineCombo = new JComboBox<>(medicineModel);
+        medicineCombo.setEditable(true);
+        medicineCombo.setSelectedItem("");
+        UITheme.styleComboBox(medicineCombo);
+
+        JLabel stockHintLabel = new JLabel(
+                uniqueNames.isEmpty()
+                        ? "Tip: Add medicines in Medicine Inventory to enable auto-deduction."
+                        : "Select from Inventory or type a custom medicine name.");
+        stockHintLabel.setFont(UITheme.FONT_SMALL);
+        stockHintLabel.setForeground(UITheme.TEXT_SECONDARY);
 
         JComboBox<String> typeCombo = new JComboBox<>(MEDICINE_TYPES);
         UITheme.styleComboBox(typeCombo);
@@ -221,6 +244,67 @@ public class MedicationsPanel extends JPanel {
         JTextField timeField = UITheme.createTextField(23);
         timeField.setToolTipText("Use 24-hour HH:mm format, e.g., 08:00 or 20:30");
 
+        // Sync live stock hint and auto-select Medicine Type when matching an inventory item
+        Runnable syncInventoryHint = () -> {
+            Object raw = medicineCombo.getEditor().getItem();
+            String entered = raw != null ? raw.toString().trim() : "";
+            if (entered.isEmpty()) {
+                stockHintLabel.setText(uniqueNames.isEmpty()
+                        ? "Tip: Add medicines in Medicine Inventory to enable auto-deduction."
+                        : "Select from Inventory or type a custom medicine name.");
+                stockHintLabel.setForeground(UITheme.TEXT_SECONDARY);
+                return;
+            }
+            MedicineItem matched = service.findMatchingInventoryItem(
+                    entered, (String) typeCombo.getSelectedItem());
+            if (matched != null) {
+                if (MedicineItem.STATUS_OUT_OF_STOCK.equals(matched.getStockStatus())) {
+                    stockHintLabel.setText("Inventory: " + matched.getItemType() + " - Out of Stock (0 remaining)");
+                    stockHintLabel.setForeground(UITheme.ERROR_TEXT);
+                } else if (MedicineItem.STATUS_LOW_STOCK.equals(matched.getStockStatus())) {
+                    stockHintLabel.setText("Inventory: " + matched.getItemType() + " - Low Stock (" + matched.getQuantityDisplay() + ")");
+                    stockHintLabel.setForeground(UITheme.WARNING_TEXT);
+                } else {
+                    stockHintLabel.setText("Inventory linked: " + matched.getItemType() + " (" + matched.getQuantityDisplay() + " available)");
+                    stockHintLabel.setForeground(UITheme.SUCCESS_TEXT);
+                }
+            } else {
+                stockHintLabel.setText("Custom entry (not in Inventory - stock will not auto-deduct).");
+                stockHintLabel.setForeground(UITheme.TEXT_MUTED);
+            }
+        };
+
+        medicineCombo.addActionListener(e -> {
+            Object selected = medicineCombo.getSelectedItem();
+            if (selected != null) {
+                MedicineItem matched = service.findMedicineByName(selected.toString().trim());
+                if (matched != null) {
+                    typeCombo.setSelectedItem(matched.getItemType());
+                }
+            }
+            syncInventoryHint.run();
+        });
+
+        Component editorComp = medicineCombo.getEditor().getEditorComponent();
+        if (editorComp instanceof JTextField) {
+            ((JTextField) editorComp).getDocument().addDocumentListener(new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    syncInventoryHint.run();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    syncInventoryHint.run();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    syncInventoryHint.run();
+                }
+            });
+        }
+
         typeCombo.addActionListener(e -> {
             String selectedType = (String) typeCombo.getSelectedItem();
             boolean isInjection = Medication.TYPE_INJECTION.equals(selectedType);
@@ -234,16 +318,26 @@ public class MedicationsPanel extends JPanel {
             } else {
                 dosageLabel.setText("Dosage (e.g. 500 mg) *");
             }
+            syncInventoryHint.run();
             dialog.pack();
         });
 
         addFormRow(formPanel, 0, createFieldLabel("Patient *"), patientCombo);
-        addFormRow(formPanel, 1, createFieldLabel("Medicine Name *"), medicineField);
-        addFormRow(formPanel, 2, createFieldLabel("Medicine Type *"), typeCombo);
-        addFormRow(formPanel, 3, routeLabel, routeCombo);
-        addFormRow(formPanel, 4, dosageLabel, dosageField);
-        addFormRow(formPanel, 5, createFieldLabel("Frequency *"), frequencyCombo);
-        addFormRow(formPanel, 6, createFieldLabel("Scheduled Time (HH:mm) *"), timeField);
+        addFormRow(formPanel, 1, createFieldLabel("Medicine Name *"), medicineCombo);
+
+        GridBagConstraints hintGbc = new GridBagConstraints();
+        hintGbc.gridx = 1;
+        hintGbc.gridy = 2;
+        hintGbc.anchor = GridBagConstraints.WEST;
+        hintGbc.fill = GridBagConstraints.HORIZONTAL;
+        hintGbc.insets = new Insets(0, 0, 8, 0);
+        formPanel.add(stockHintLabel, hintGbc);
+
+        addFormRow(formPanel, 3, createFieldLabel("Medicine Type *"), typeCombo);
+        addFormRow(formPanel, 4, routeLabel, routeCombo);
+        addFormRow(formPanel, 5, dosageLabel, dosageField);
+        addFormRow(formPanel, 6, createFieldLabel("Frequency *"), frequencyCombo);
+        addFormRow(formPanel, 7, createFieldLabel("Scheduled Time (HH:mm) *"), timeField);
 
         JPanel footer = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 12));
         footer.setBackground(UITheme.BG_APP);
@@ -255,7 +349,8 @@ public class MedicationsPanel extends JPanel {
         cancelBtn.addActionListener(e -> dialog.dispose());
         saveBtn.addActionListener(e -> {
             Patient selectedPatient = (Patient) patientCombo.getSelectedItem();
-            String medicineName = medicineField.getText().trim();
+            Object rawMedicine = medicineCombo.getEditor().getItem();
+            String medicineName = rawMedicine != null ? rawMedicine.toString().trim() : "";
             String medicineType = (String) typeCombo.getSelectedItem();
             String injectionRoute = Medication.TYPE_INJECTION.equals(medicineType)
                     ? (String) routeCombo.getSelectedItem() : "";
@@ -308,19 +403,13 @@ public class MedicationsPanel extends JPanel {
             return;
         }
 
-        MedicineItem stockItem = service.findMedicineByName(med.getMedicineName());
-        if (stockItem != null && MedicineItem.STATUS_OUT_OF_STOCK.equals(stockItem.getStockStatus())) {
-            int proceed = JOptionPane.showConfirmDialog(
-                    this,
-                    stockItem.getName() + " is currently marked as Out of Stock in Medicine Inventory.\n"
-                            + "Do you still want to record this dose as Given?",
-                    "Insufficient Inventory Stock",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE
-            );
-            if (proceed != JOptionPane.YES_OPTION) {
-                return;
-            }
+        MedicineItem stockItem = service.findMatchingInventoryItem(med.getMedicineName(), med.getMedicineType());
+        if (stockItem != null && stockItem.getQuantity() <= 0) {
+            UITheme.showWarning(this, "Out of Stock",
+                    stockItem.getName() + " (" + stockItem.getItemType()
+                            + ") is currently Out of Stock in Medicine Inventory.\n"
+                            + "Please restock it in the Medicine Inventory tab before administering.");
+            return;
         }
 
         // Injections go through the dedicated injection administration verification dialog
@@ -331,14 +420,22 @@ public class MedicationsPanel extends JPanel {
 
         try {
             AdministrationLog log = service.markMedicationAsGiven(med.getMedicationId(), "Oral");
+            String inventoryNote = service.getLastAdministrationInventoryNote();
             notifyFeedback("Dose given: " + log.getMedicineName() + " at " + log.getFormattedTime());
-            UITheme.showInfo(this, "Medication Administered",
-                    "Recorded as Given:\n"
-                            + "Patient: " + log.getPatientName() + "\n"
-                            + "Medicine: " + log.getMedicineName() + " (" + log.getMedicineType() + ", " + log.getDosage() + ")\n"
-                            + "Date & Time: " + log.getFormattedDate() + " at " + log.getFormattedTime());
+
+            StringBuilder message = new StringBuilder();
+            message.append("Recorded as Given:\n")
+                    .append("Patient: ").append(log.getPatientName()).append("\n")
+                    .append("Medicine: ").append(log.getMedicineName())
+                    .append(" (").append(log.getMedicineType()).append(", ").append(log.getDosage()).append(")\n")
+                    .append("Date & Time: ").append(log.getFormattedDate()).append(" at ").append(log.getFormattedTime());
+            if (inventoryNote != null && !inventoryNote.isEmpty()) {
+                message.append("\n\n").append(inventoryNote);
+            }
+
+            UITheme.showInfo(this, "Medication Administered", message.toString());
         } catch (IllegalStateException ex) {
-            UITheme.showWarning(this, "Duplicate Administration Prevented", ex.getMessage());
+            UITheme.showWarning(this, "Cannot Administer Dose", ex.getMessage());
         } catch (IllegalArgumentException ex) {
             UITheme.showError(this, "Operation Failed", ex.getMessage());
         } catch (IOException ex) {
@@ -357,7 +454,7 @@ public class MedicationsPanel extends JPanel {
 
         dialog.add(UITheme.createDialogHeader(
                 "Injection Administration Verification",
-                patientName + "  •  " + med.getMedicineName() + " (" + med.getDosage() + ")"),
+                patientName + "  \u2022  " + med.getMedicineName() + " (" + med.getDosage() + ")"),
                 BorderLayout.NORTH);
 
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -413,21 +510,28 @@ public class MedicationsPanel extends JPanel {
 
             String route = (String) routeCombo.getSelectedItem();
             String site = (String) siteCombo.getSelectedItem();
-            String details = route + " — " + site;
+            String details = route + " - " + site;
 
             try {
                 AdministrationLog log = service.markMedicationAsGiven(med.getMedicationId(), details);
+                String inventoryNote = service.getLastAdministrationInventoryNote();
                 dialog.dispose();
                 notifyFeedback("Injection logged: " + log.getMedicineName() + " (" + site + ")");
-                UITheme.showInfo(this, "Injection Administered",
-                        "Recorded as Given:\n"
-                                + "Patient: " + log.getPatientName() + "\n"
-                                + "Injection: " + log.getMedicineName() + " (" + log.getDosage() + ")\n"
-                                + "Route & Site: " + log.getAdministrationDetails() + "\n"
-                                + "Date & Time: " + log.getFormattedDate() + " at " + log.getFormattedTime());
+
+                StringBuilder message = new StringBuilder();
+                message.append("Recorded as Given:\n")
+                        .append("Patient: ").append(log.getPatientName()).append("\n")
+                        .append("Injection: ").append(log.getMedicineName()).append(" (").append(log.getDosage()).append(")\n")
+                        .append("Route & Site: ").append(log.getAdministrationDetails()).append("\n")
+                        .append("Date & Time: ").append(log.getFormattedDate()).append(" at ").append(log.getFormattedTime());
+                if (inventoryNote != null && !inventoryNote.isEmpty()) {
+                    message.append("\n\n").append(inventoryNote);
+                }
+
+                UITheme.showInfo(this, "Injection Administered", message.toString());
             } catch (IllegalStateException ex) {
                 dialog.dispose();
-                UITheme.showWarning(this, "Duplicate Administration Prevented", ex.getMessage());
+                UITheme.showWarning(this, "Cannot Administer Dose", ex.getMessage());
             } catch (IllegalArgumentException ex) {
                 UITheme.showError(dialog, "Operation Failed", ex.getMessage());
             } catch (IOException ex) {
